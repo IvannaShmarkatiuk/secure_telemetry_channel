@@ -113,6 +113,14 @@ class BitReader:
         self._pos += 1
         return bit
 
+    def padding_is_zero(self) -> bool:
+        used = self._pos % 8               # скільки бітів поточного байта прочитано
+        if used == 0:
+            return True                    # стоїмо на межі байта: доповнення немає
+        byte = self._data[self._pos // 8]
+        mask = (1 << (8 - used)) - 1       # одиниці на місцях доповнення
+        return byte & mask == 0
+
 
 # ---------- Крок 6. huffman_encode / huffman_decode ----------
 
@@ -150,4 +158,7 @@ def huffman_decode(lengths: dict[int, int], bitstream: bytes,
                 break
         else:
             raise HuffmanError("біти не відповідають жодному символу таблиці")
+
+    if not reader.padding_is_zero():       # розділ 3.3: доповнення мають бути нулі
+        raise HuffmanError("ненульові біти доповнення")
     return bytes(out)
