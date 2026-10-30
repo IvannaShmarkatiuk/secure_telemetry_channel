@@ -1,6 +1,7 @@
 """Криптографія пакета TLM1 (FORMAT_SPEC, розділ 4)."""
 import functools
 import hashlib
+import hmac
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -27,3 +28,13 @@ def aes_ctr(k_enc: bytes, nonce: bytes, data: bytes) -> bytes:
     cipher = Cipher(algorithms.AES(k_enc), modes.CTR(initial_counter_block))
     encryptor = cipher.encryptor()
     return encryptor.update(data) + encryptor.finalize()
+
+
+def make_tag(k_mac: bytes, data: bytes) -> bytes:
+    """HMAC-SHA256 над data ключем K_mac. Повертає 32 байти."""
+    return hmac.new(k_mac, data, hashlib.sha256).digest()
+
+
+def verify_tag(k_mac: bytes, data: bytes, tag: bytes) -> bool:
+    """Перевіряє тег у постійний час (без витоку через час відповіді)."""
+    return hmac.compare_digest(make_tag(k_mac, data), tag)
