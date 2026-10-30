@@ -1,6 +1,6 @@
 import struct
 
-from crypto import aes_ctr, derive_keys, make_tag
+from crypto import aes_ctr, derive_keys, make_tag, verify_tag
 from frame import Frame
 from huffman import HuffmanError, huffman_decode, huffman_encode
 
@@ -19,7 +19,10 @@ HEADER_FORMAT = ">4sBHI16s12sI"
 PAYLOAD_START_FORMAT = ">HBBH"
 # I symbol_count, I bitstream_len
 PAYLOAD_COUNTS_FORMAT = ">II"
+FLAG_CLASS_TABLE = 0x04
 FLAG_NO_COMPRESSION = 0x08
+# Біти flags, яких наш приймач не знає: 0x01, 0x02 (командні розширення) і 0x10..0x80 (reserved)
+UNKNOWN_FLAGS = 0xFF & ~(FLAG_CLASS_TABLE | FLAG_NO_COMPRESSION)
 
 
 class PacketError(Exception):
@@ -54,23 +57,30 @@ def parse_payload(payload: bytes) -> list[Frame]:
     if len(payload) < 6:
         raise PacketError("E_PAYLOAD")
     frame_count, flags, reserved, table_nsym = struct.unpack(PAYLOAD_START_FORMAT, payload[:6])
-    if reserved != 0 or flags not in (0, FLAG_NO_COMPRESSION):
+    if reserved != 0 or flags & UNKNOWN_FLAGS:
         raise PacketError("E_PAYLOAD")
 
     table_end = 6 + 2 * table_nsym
     if len(payload) < table_end + 8:
         raise PacketError("E_PAYLOAD")
+    symbols = list(payload[6:table_end:2])
+    # Символи мають іти строго за зростанням (розділ 3.2): це ловить і повтори, і безлад
+    if any(a >= b for a, b in zip(symbols, symbols[1:])):
+        raise PacketError("E_CODE")
     lengths = {payload[i]: payload[i + 1] for i in range(6, table_end, 2)}
     symbol_count, bitstream_len = struct.unpack(PAYLOAD_COUNTS_FORMAT, payload[table_end:table_end + 8])
     if symbol_count != 12 * frame_count:
         raise PacketError("E_PAYLOAD")
 
     bitstream_start = table_end + 8
-    if len(payload) != bitstream_start + bitstream_len:
+    bitstream_end = bitstream_start + bitstream_len
+    # class_table (розділ 3.4): по байту на кадр після потоку; нам не потрібна, тому пропускаємо
+    class_table_len = frame_count if flags & FLAG_CLASS_TABLE else 0
+    if len(payload) != bitstream_end + class_table_len:
         raise PacketError("E_PAYLOAD")
-    bitstream = payload[bitstream_start:]
+    bitstream = payload[bitstream_start:bitstream_end]
 
-    if flags == FLAG_NO_COMPRESSION:
+    if flags & FLAG_NO_COMPRESSION:
         # Розділ 3.1: таблиці немає, у потоці рівно symbol_count сирих байтів
         if table_nsym != 0 or bitstream_len != symbol_count:
             raise PacketError("E_PAYLOAD")
@@ -84,7 +94,7 @@ def parse_payload(payload: bytes) -> list[Frame]:
     try:
         return [Frame.from_bytes(data[i:i + 12]) for i in range(0, len(data), 12)]
     except ValueError:
-        raise PacketError("E_PAYLOAD")  # тимчасово: код для поганого кадру ще не погоджено
+        raise PacketError("E_PAYLOAD")  # кадр із mode > 7 або critical > 1
 
 
 def build_packet(frames: list[Frame], password: str, device_id: int, packet_seq: int,
@@ -120,4 +130,12 @@ def parse_packet(packet: bytes, password: str) -> list["Frame"]:
     if len(packet) != HEADER_LEN + ciphertext_len + TAG_LEN:
         raise PacketError("E_LENGTH")
 
-    raise NotImplementedError("кроки 4-8 (HMAC, розшифрування, навантаження) ще не написані")
+    # Кроки 4-5: HMAC перевіряємо ДО розшифрування. Невірний пароль теж дає E_HMAC.
+    ciphertext_end = HEADER_LEN + ciphertext_len
+    k_enc, k_mac = derive_keys(password, salt)
+    if not verify_tag(k_mac, packet[:ciphertext_end], packet[ciphertext_end:]):
+        raise PacketError("E_HMAC")
+
+    # Кроки 6-8: розшифрувати, розібрати навантаження, відновити кадри
+    payload = aes_ctr(k_enc, nonce, packet[HEADER_LEN:ciphertext_end])
+    return parse_payload(payload)

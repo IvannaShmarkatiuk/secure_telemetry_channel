@@ -1,3 +1,4 @@
+import hashlib
 import struct
 
 import pytest
@@ -250,3 +251,126 @@ def test_build_packet_rejects_short_salt(fake_crypto):
 def test_build_packet_rejects_long_nonce(fake_crypto):
     with pytest.raises(ValueError):
         build_ref_packet(nonce=REF_NONCE + b"\x00")
+
+
+# ---------- Крок 4: parse_packet у порядку розділу 5 ----------
+def test_parse_payload_with_class_table():
+    # flags = CLASS_TABLE (0x04): після потоку ще 1 байт класу на кадр, приймач його пропускає
+    payload = REF_PAYLOAD[:2] + b"\x04" + REF_PAYLOAD[3:] + b"\x02"
+    assert parse_payload(payload) == [REF_FRAME]
+
+
+def test_class_table_missing():
+    payload = REF_PAYLOAD[:2] + b"\x04" + REF_PAYLOAD[3:]
+    assert payload_error_code(payload) == "E_PAYLOAD"
+
+
+def test_table_with_repeated_symbol():
+    # другий запис таблиці (01 03) замінено повтором першого (00 01)
+    payload = REF_PAYLOAD[:8] + b"\x00\x01" + REF_PAYLOAD[10:]
+    assert payload_error_code(payload) == "E_CODE"
+
+
+def test_table_not_sorted():
+    # перші два записи переставлено: 01 03, 00 01
+    payload = REF_PAYLOAD[:6] + b"\x01\x03\x00\x01" + REF_PAYLOAD[10:]
+    assert payload_error_code(payload) == "E_CODE"
+
+
+# Іграшкова криптографія: оборотна і чутлива до пароля, щоб перевірити ЛОГІКУ приймача
+# без коду Наді. Справжній AES і HMAC перевірить крок 5 на еталонних файлах.
+def toy_derive_keys(password, salt):
+    master = hashlib.sha256(password.encode() + salt).digest()
+    return master[:16], master[16:]
+
+
+def toy_aes_ctr(k_enc, nonce, data):
+    toy_aes_ctr.calls += 1
+    return bytes(b ^ 0x5A for b in data)
+
+
+def toy_make_tag(k_mac, data):
+    return hashlib.sha256(k_mac + data).digest()
+
+
+def toy_verify_tag(k_mac, data, tag):
+    return toy_make_tag(k_mac, data) == tag
+
+
+@pytest.fixture
+def toy_crypto(monkeypatch):
+    toy_aes_ctr.calls = 0
+    monkeypatch.setattr(packet, "derive_keys", toy_derive_keys)
+    monkeypatch.setattr(packet, "aes_ctr", toy_aes_ctr)
+    monkeypatch.setattr(packet, "make_tag", toy_make_tag)
+    monkeypatch.setattr(packet, "verify_tag", toy_verify_tag)
+
+
+def packet_from_payload(payload: bytes) -> bytes:
+    """Чесно шифрує і пломбує БУДЬ-ЯКЕ навантаження, навіть зіпсоване."""
+    k_enc, k_mac = toy_derive_keys(PASSWORD, REF_SALT)
+    ciphertext = toy_aes_ctr(k_enc, REF_NONCE, payload)
+    header = build_header(1, 0, REF_SALT, REF_NONCE, len(ciphertext))
+    return header + ciphertext + toy_make_tag(k_mac, header + ciphertext)
+
+
+def test_single_frame_round_trip(toy_crypto):
+    assert parse_packet(build_ref_packet(), PASSWORD) == [REF_FRAME]
+
+
+def test_empty_packet_round_trip(toy_crypto):
+    pkt = build_packet([], PASSWORD, device_id=1, packet_seq=0, salt=REF_SALT, nonce=REF_NONCE)
+    assert len(pkt) == 43 + 14 + 32
+    assert parse_packet(pkt, PASSWORD) == []
+
+
+def test_tampered_ciphertext(toy_crypto):
+    pkt = bytearray(build_ref_packet())
+    pkt[50] ^= 0x01
+    assert error_code(bytes(pkt)) == "E_HMAC"
+
+
+def test_tampered_tag(toy_crypto):
+    pkt = bytearray(build_ref_packet())
+    pkt[-1] ^= 0x01
+    assert error_code(bytes(pkt)) == "E_HMAC"
+
+
+def test_tampered_header(toy_crypto):
+    pkt = bytearray(build_ref_packet())
+    pkt[6] ^= 0x01  # device_id: заголовок теж під пломбою
+    assert error_code(bytes(pkt)) == "E_HMAC"
+
+
+def test_wrong_password(toy_crypto):
+    with pytest.raises(PacketError) as info:
+        parse_packet(build_ref_packet(), "wrong")
+    assert info.value.code == "E_HMAC"
+
+
+def test_no_decryption_before_hmac(toy_crypto):
+    pkt = bytearray(build_ref_packet())
+    pkt[-1] ^= 0x01
+    calls_after_build = toy_aes_ctr.calls
+    error_code(bytes(pkt))
+    assert toy_aes_ctr.calls == calls_after_build  # розділ 5: при поганому HMAC не розшифровуємо
+
+
+def test_reserved_not_zero_in_packet(toy_crypto):
+    payload = REF_PAYLOAD[:3] + b"\x01" + REF_PAYLOAD[4:]
+    assert error_code(packet_from_payload(payload)) == "E_PAYLOAD"
+
+
+def test_huffman_error_in_packet(toy_crypto, monkeypatch):
+    def broken_decode(lengths, bitstream, symbol_count):
+        raise HuffmanError("потік обірвано")
+    monkeypatch.setattr(packet, "huffman_decode", broken_decode)
+    assert error_code(packet_from_payload(REF_PAYLOAD)) == "E_CODE"
+
+
+def test_big_packet_is_accepted(toy_crypto):
+    # розділ 3.5: ліміт max_packet_bytes стосується лише передавача
+    payload = bytes.fromhex("0040 08 00 0000 00000300 00000300") + REF_FRAME_BYTES * 64
+    pkt = packet_from_payload(payload)
+    assert len(pkt) > 512
+    assert parse_packet(pkt, PASSWORD) == [REF_FRAME] * 64
