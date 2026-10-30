@@ -2,6 +2,8 @@
 import functools
 import hashlib
 
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
 
 @functools.lru_cache(maxsize=None)
 def derive_keys(password: str, salt: bytes) -> tuple[bytes, bytes]:
@@ -14,3 +16,14 @@ def derive_keys(password: str, salt: bytes) -> tuple[bytes, bytes]:
         dklen=64,
     )
     return master[:32], master[32:]
+
+
+def aes_ctr(k_enc: bytes, nonce: bytes, data: bytes) -> bytes:
+    """AES-256-CTR. Шифрування і розшифрування — одна й та сама операція.
+
+    Блок лічильника = nonce (12 байтів) || uint32_BE(i), i починається з 1.
+    """
+    initial_counter_block = nonce + (1).to_bytes(4, "big")
+    cipher = Cipher(algorithms.AES(k_enc), modes.CTR(initial_counter_block))
+    encryptor = cipher.encryptor()
+    return encryptor.update(data) + encryptor.finalize()
