@@ -218,3 +218,38 @@ def test_decode_truncated_stream():
 def test_decode_length_over_15():
     with pytest.raises(HuffmanError):
         huffman_decode({0x41: 16}, b"\x00\x00\x00", 1)
+
+
+# ---------- Біти доповнення мають бути нулями (розділ 3.3) ----------
+
+def test_bitreader_padding_is_zero():
+    r = BitReader(b"\x90")              # 100100 00
+    for _ in range(6):
+        r.read_bit()
+    assert r.padding_is_zero()
+
+
+def test_bitreader_padding_not_zero():
+    r = BitReader(b"\x91")              # 100100 01
+    for _ in range(6):
+        r.read_bit()
+    assert not r.padding_is_zero()
+
+
+def test_bitreader_padding_on_byte_boundary():
+    r = BitReader(b"\xFF")
+    for _ in range(8):
+        r.read_bit()
+    assert r.padding_is_zero()          # доповнення немає
+
+
+def test_decode_nonzero_padding_spec_example():
+    bad = SPEC_BITSTREAM[:3] + b"\x91"  # останній біт доповнення = 1
+    with pytest.raises(HuffmanError):
+        huffman_decode(SPEC_LENGTHS, bad, 12)
+
+
+def test_decode_nonzero_padding_single_symbol():
+    # 10 нульових бітів даних, у доповненні другого байта одиниця
+    with pytest.raises(HuffmanError):
+        huffman_decode({0x41: 1}, b"\x00\x01", 10)
