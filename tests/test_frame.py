@@ -18,3 +18,19 @@ def test_round_trip():
 def test_from_bytes_wrong_length():
     with pytest.raises(ValueError):
         Frame.from_bytes(b"123")
+
+@pytest.mark.parametrize("mode", [-1, 8, 255])
+def test_invalid_mode(mode):
+    with pytest.raises(ValueError):
+        Frame(0, 0, 0, 0, mode, 0)
+
+@pytest.mark.parametrize("critical", [-1, 2, 255])
+def test_invalid_critical(critical):
+    with pytest.raises(ValueError):
+        Frame(0, 0, 0, 0, 0, critical)
+
+def test_from_bytes_invalid_mode():
+    data = bytearray(Frame(0, 0, 0, 0, 0, 0).to_bytes())
+    data[10] = 9                     # байт mode 
+    with pytest.raises(ValueError):
+        Frame.from_bytes(bytes(data))
