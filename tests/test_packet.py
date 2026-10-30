@@ -5,8 +5,8 @@ import pytest
 import packet
 from frame import Frame
 from huffman import HuffmanError
-from packet import (HEADER_FORMAT, HEADER_LEN, PacketError, build_header, build_payload,
-                    parse_packet, parse_payload)
+from packet import (HEADER_FORMAT, HEADER_LEN, PacketError, build_header, build_packet,
+                    build_payload, parse_packet, parse_payload)
 
 # Контрольний пакет із FORMAT_SPEC, розділ 7 (ref_01_single_frame.bin), 107 байтів
 REF_01 = bytes.fromhex(
@@ -202,3 +202,51 @@ def test_header_fields_are_big_endian():
     assert header[11:27] == REF_SALT
     assert header[27:39] == REF_NONCE
     assert header[39:43] == bytes.fromhex("0708090A")
+
+
+# ---------- Крок 3: build_packet (розділи 2 і 4) ----------
+# Ключі тут умовні: справжні рахує derive_keys Наді. Підробки перевіряють, ЩО packet.py
+# передає криптографії, і повертають шифротекст і тег із REF_01.
+FAKE_K_ENC = b"E" * 32
+FAKE_K_MAC = b"M" * 32
+
+
+def fake_derive_keys(password, salt):
+    assert (password, salt) == (PASSWORD, REF_SALT)
+    return FAKE_K_ENC, FAKE_K_MAC
+
+
+def fake_aes_ctr(k_enc, nonce, data):
+    assert (k_enc, nonce, data) == (FAKE_K_ENC, REF_NONCE, REF_PAYLOAD)
+    return REF_01[43:75]
+
+
+def fake_make_tag(k_mac, data):
+    # HMAC рахується над заголовком і шифротекстом разом (Encrypt-then-MAC)
+    assert (k_mac, data) == (FAKE_K_MAC, REF_01[:75])
+    return REF_01[75:]
+
+
+@pytest.fixture
+def fake_crypto(monkeypatch):
+    monkeypatch.setattr(packet, "derive_keys", fake_derive_keys)
+    monkeypatch.setattr(packet, "aes_ctr", fake_aes_ctr)
+    monkeypatch.setattr(packet, "make_tag", fake_make_tag)
+
+
+def build_ref_packet(salt=REF_SALT, nonce=REF_NONCE) -> bytes:
+    return build_packet([REF_FRAME], PASSWORD, device_id=1, packet_seq=0, salt=salt, nonce=nonce)
+
+
+def test_build_ref_packet(fake_crypto):
+    assert build_ref_packet() == REF_01
+
+
+def test_build_packet_rejects_short_salt(fake_crypto):
+    with pytest.raises(ValueError):
+        build_ref_packet(salt=REF_SALT[:15])
+
+
+def test_build_packet_rejects_long_nonce(fake_crypto):
+    with pytest.raises(ValueError):
+        build_ref_packet(nonce=REF_NONCE + b"\x00")
