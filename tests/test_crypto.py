@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from crypto import derive_keys, aes_ctr
+from crypto import derive_keys, aes_ctr, make_tag, verify_tag
 
 PASSWORD = "algo2026"
 SALT = bytes.fromhex("000102030405060708090A0B0C0D0E0F")
@@ -78,3 +78,39 @@ def test_aes_ctr_counter_starts_at_one():
     keystream = aes_ctr(k_enc, NONCE, bytes(32))
     assert keystream[:16] == expected_block1
     assert keystream[16:] == expected_block2
+
+
+# ---------- Крок 3: make_tag / verify_tag ----------
+
+def test_tag_length_is_32():
+    _, k_mac = derive_keys(PASSWORD, SALT)
+    assert len(make_tag(k_mac, b"hello")) == 32
+
+
+def test_verify_tag_accepts_correct_tag():
+    _, k_mac = derive_keys(PASSWORD, SALT)
+    data = b"some packet bytes"
+    assert verify_tag(k_mac, data, make_tag(k_mac, data)) is True
+
+
+def test_verify_tag_rejects_flipped_data_bit():
+    _, k_mac = derive_keys(PASSWORD, SALT)
+    data = bytearray(b"some packet bytes")
+    tag = make_tag(k_mac, bytes(data))
+    data[3] ^= 0x01  # змінили один біт
+    assert verify_tag(k_mac, bytes(data), tag) is False
+
+
+def test_verify_tag_rejects_flipped_tag_bit():
+    _, k_mac = derive_keys(PASSWORD, SALT)
+    data = b"some packet bytes"
+    tag = bytearray(make_tag(k_mac, data))
+    tag[0] ^= 0x01
+    assert verify_tag(k_mac, data, bytes(tag)) is False
+
+
+def test_verify_tag_rejects_wrong_key():
+    _, k_mac = derive_keys(PASSWORD, SALT)
+    _, other_mac = derive_keys("wrong-password", SALT)
+    data = b"some packet bytes"
+    assert verify_tag(other_mac, data, make_tag(k_mac, data)) is False
