@@ -1,18 +1,10 @@
-from frame import Frame
-from huffman import count_frequencies, limited_code_lengths
+"""Пакування кадрів у пакет: рюкзак 0/1 (FORMAT_SPEC, розділ 3.5).
+
+Ваги кадрів рахує huffman.py (window_lengths, frame_weight),
+цінності — run_session.py (frame_value). Тут лише місткість і вибір кадрів.
+"""
 
 FIXED_PAYLOAD_BYTES = 14  # 6 байтів початку навантаження + 8 байтів лічильників
-
-
-def window_lengths(frames: list[Frame]) -> dict[int, int]:
-    """Одна таблиця Гаффмана {байт: довжина коду} для всього вікна кандидатів."""
-    data = b"".join(frame.to_bytes() for frame in frames)
-    return limited_code_lengths(count_frequencies(data))
-
-
-def frame_weight(frame: Frame, lengths: dict[int, int]) -> int:
-    """Вага кадру: скільки біт займуть його 12 байтів за таблицею вікна."""
-    return sum(lengths[b] for b in frame.to_bytes())
 
 
 def capacity_bits(max_payload_bytes: int, table_nsym: int) -> int:
