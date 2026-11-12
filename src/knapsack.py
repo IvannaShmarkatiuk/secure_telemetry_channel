@@ -37,3 +37,16 @@ def knapsack_dp(weights: list[int], values: list[int], capacity: int) -> list[in
             chosen.append(i)
             c -= weights[i]
     return sorted(chosen)    
+
+def knapsack_greedy(weights: list[int], values: list[int], capacity: int) -> list[int]:
+    """Жадібний рюкзак за v/w (спадання). Повертає індекси обраних кадрів за зростанням."""
+    # Найвигідніші кадри — першими; sorted стабільний, тож за рівної вигідності
+    # раніше йде кадр, що стоїть раніше у списку
+    order = sorted(range(len(weights)), key=lambda i: values[i] / weights[i], reverse=True)
+    chosen = []
+    left = capacity
+    for i in order:
+        if weights[i] <= left:  # влазить — беремо, ні — пропускаємо і дивимося далі
+            chosen.append(i)
+            left -= weights[i]
+    return sorted(chosen)    
