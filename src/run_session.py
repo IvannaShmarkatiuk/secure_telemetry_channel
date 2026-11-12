@@ -38,6 +38,30 @@ def make_nonce(session_prefix, packet_seq):
     """nonce = 8 байтів сеансу + номер пакета (4 байти, big-endian) = 12 байтів."""
     return session_prefix + packet_seq.to_bytes(4, "big")
 
+def frame_value(cls, critical, config=None):
+    """Цінність кадру: пріоритет за класом + бонус за critical.
+
+    cls: 0 норма, 1 аномалія, 2 перехідний режим.
+    Числа беруться з team_config.json (пріоритети_кадрів).
+    """
+    if cls not in (0, 1, 2):
+        raise ValueError(f"клас має бути 0, 1 або 2, а не {cls}")
+    if critical not in (0, 1):
+        raise ValueError(f"critical має бути 0 або 1, а не {critical}")
+    p = (config or load_config())["пріоритети_кадрів"]
+    by_class = {0: p["норма"], 1: p["аномалія"], 2: p["перехідний_режим"]}
+    return by_class[cls] + p["critical_бонус"] * critical
+
+
+def schedule(groups):
+    """Порядок відправки: групи з більшою сумарною цінністю йдуть першими.
+
+    groups: список пар (індекси кадрів, сумарна цінність).
+    Повертає список списків індексів. При однаковій цінності зберігається
+    початковий порядок. packet_seq призначають уже в цьому порядку: 0, 1, 2...
+    """
+    ordered = sorted(groups, key=lambda g: -g[1])
+    return [list(indices) for indices, _ in ordered]
 
 def make_packets(frames, config, salt, session_prefix):
     """Жадібна нарізка: у пакет додаємо кадри, поки він не перевищить ліміт.
