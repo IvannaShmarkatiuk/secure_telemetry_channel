@@ -2,7 +2,7 @@ import struct
 
 from crypto import aes_ctr, derive_keys, make_tag, verify_tag
 from frame import Frame
-from huffman import HuffmanError, huffman_decode, huffman_encode
+from huffman import HuffmanError, HuffmanTrailingDataError, huffman_decode, huffman_encode
 
 MAGIC = b"TLM1"
 VERSION = 1
@@ -88,10 +88,10 @@ def parse_payload(payload: bytes) -> list[Frame]:
     else:
         try:
             data = huffman_decode(lengths, bitstream, symbol_count)
+        except HuffmanTrailingDataError:
+            raise PacketError("E_PAYLOAD")  # зайві байти в потоці: неузгоджені довжини секцій
         except HuffmanError:
             raise PacketError("E_CODE")
-        if bitstream_len != (sum(lengths[b] for b in data) + 7) // 8:
-            raise PacketError("E_PAYLOAD")
     try:
         return [Frame.from_bytes(data[i:i + 12]) for i in range(0, len(data), 12)]
     except ValueError:
