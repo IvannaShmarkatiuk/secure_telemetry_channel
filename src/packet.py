@@ -35,13 +35,13 @@ class PacketError(Exception):
 
 def build_header(device_id: int, packet_seq: int, salt: bytes, nonce: bytes,
                  ciphertext_len: int) -> bytes:
-    """Збирає відкритий заголовок, 43 байти (розділ 2.1)."""
+    """Збирає відкритий заголовок, 43 байти."""
     return struct.pack(HEADER_FORMAT, MAGIC, VERSION, device_id, packet_seq, salt, nonce,
                        ciphertext_len)
 
 
 def build_payload(frames: list[Frame]) -> bytes:
-    """Збирає навантаження з кадрів (розділ 3). Завжди flags = 0, тобто Гаффман."""
+    """Збирає навантаження з кадрів."""
     data = b"".join(frame.to_bytes() for frame in frames)
     lengths, bitstream = huffman_encode(data)
     # Таблиця: лише символи з ненульовою довжиною, за зростанням символу (розділ 3.2)
@@ -74,14 +74,14 @@ def parse_payload(payload: bytes) -> list[Frame]:
 
     bitstream_start = table_end + 8
     bitstream_end = bitstream_start + bitstream_len
-    # class_table (розділ 3.4): по байту на кадр після потоку; нам не потрібна, тому пропускаємо
+    # class_table: по байту на кадр після потоку; нам не потрібна, тому пропускаємо
     class_table_len = frame_count if flags & FLAG_CLASS_TABLE else 0
     if len(payload) != bitstream_end + class_table_len:
         raise PacketError("E_PAYLOAD")
     bitstream = payload[bitstream_start:bitstream_end]
 
     if flags & FLAG_NO_COMPRESSION:
-        # Розділ 3.1: таблиці немає, у потоці рівно symbol_count сирих байтів
+        # таблиці немає, у потоці рівно symbol_count сирих байтів
         if table_nsym != 0 or bitstream_len != symbol_count:
             raise PacketError("E_PAYLOAD")
         data = bitstream
@@ -90,7 +90,8 @@ def parse_payload(payload: bytes) -> list[Frame]:
             data = huffman_decode(lengths, bitstream, symbol_count)
         except HuffmanError:
             raise PacketError("E_CODE")
-
+        if bitstream_len != (sum(lengths[b] for b in data) + 7) // 8:
+            raise PacketError("E_PAYLOAD")
     try:
         return [Frame.from_bytes(data[i:i + 12]) for i in range(0, len(data), 12)]
     except ValueError:

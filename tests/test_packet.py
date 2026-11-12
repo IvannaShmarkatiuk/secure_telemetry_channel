@@ -369,8 +369,15 @@ def test_huffman_error_in_packet(toy_crypto, monkeypatch):
 
 
 def test_big_packet_is_accepted(toy_crypto):
-    # розділ 3.5: ліміт max_packet_bytes стосується лише передавача
+    # ліміт max_packet_bytes стосується лише передавача
     payload = bytes.fromhex("0040 08 00 0000 00000300 00000300") + REF_FRAME_BYTES * 64
     pkt = packet_from_payload(payload)
     assert len(pkt) > 512
     assert parse_packet(pkt, PASSWORD) == [REF_FRAME] * 64
+
+def test_extra_bitstream_byte_is_rejected(monkeypatch):
+    # декодер "успішно" повертає кадр — нас цікавить лише перевірка довжини потоку
+    monkeypatch.setattr(packet, "huffman_decode", lambda lengths, bitstream, n: REF_FRAME_BYTES)
+    # контрольне навантаження + один цілий зайвий нульовий байт; bitstream_len чесно 5 замість 4
+    bad = REF_PAYLOAD[:20] + bytes.fromhex("0000000C 00000005") + REF_BITSTREAM + b"\x00"
+    assert payload_error_code(bad) == "E_PAYLOAD"
