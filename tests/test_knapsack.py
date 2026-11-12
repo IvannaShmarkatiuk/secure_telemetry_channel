@@ -7,6 +7,7 @@ from pathlib import Path
 from frame import Frame
 from huffman import frame_weight, window_lengths
 from knapsack import capacity_bits, knapsack_dp, knapsack_greedy
+from packet import build_packet, parse_packet
 from run_session import frame_value
 
 REF_DIR = Path(__file__).parent.parent / "data" / "reference"
@@ -123,3 +124,20 @@ def test_dp_never_worse_than_greedy_on_session():
         dp = knapsack_dp(weights, values, capacity)
         greedy = knapsack_greedy(weights, values, capacity)
         assert total(values, dp) >= total(values, greedy)
+
+
+def test_dp_choice_fits_into_512_byte_packet():
+    # вікно ref_04: 64 кадри; ДП обирає кадри, пакет кодуємо таблицею всього вікна
+    meta = json.loads((REF_DIR / "ref_04_session.json").read_text(encoding="utf-8"))
+    frames = [Frame(**f) for f in meta["кадри"]]
+    frames_bytes = [fr.to_bytes() for fr in frames]
+    lengths = window_lengths(frames_bytes)
+    weights = [frame_weight(b, lengths) for b in frames_bytes]
+    values = [frame_value(0, fr.critical) for fr in frames]
+    chosen = knapsack_dp(weights, values, capacity_bits(437, len(lengths)))
+    picked = [frames[i] for i in chosen]
+
+    packet = build_packet(picked, "algo2026", 1, 0, bytes(16), bytes(12), lengths=lengths)
+
+    assert len(packet) <= 512                                # ДП не помилився з розміром
+    assert parse_packet(packet, "algo2026") == picked        # приймач читає кадри без втрат
