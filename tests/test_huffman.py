@@ -205,9 +205,9 @@ def test_spec_example_huffman_encode_is_optimal():
 
 
 def test_decode_symbol_not_in_table():
-    # у таблиці лише код "0"; біт 1 не відповідає жодному символу
-    with pytest.raises(HuffmanError):
-        huffman_decode({0x41: 1}, b"\x80", 1)
+    # у таблиці лише код "0"; після біта 1 жоден код не збігається
+    with pytest.raises(HuffmanError, match="не відповідають"):
+         huffman_decode({0x41: 1}, b"\x80\x00", 1)
 
 
 def test_decode_truncated_stream():
