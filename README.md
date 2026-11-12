@@ -8,6 +8,7 @@
 
 - Python 3.10+
 - залежності: `pip install -r requirements.txt` (pytest, cryptography, numpy)
+- - numpy використовується тільки для арифметики масивів (множення матриць); прямий прохід, backprop і SGD перцептрона в `src/classifier.py` написані самостійно, бібліотек навчання (sklearn, torch тощо) немає.
 
 ## Запуск
 
