@@ -2,7 +2,8 @@ import struct
 
 from crypto import aes_ctr, derive_keys, make_tag, verify_tag
 from frame import Frame
-from huffman import HuffmanError, HuffmanTrailingDataError, huffman_decode, huffman_encode
+from huffman import (HuffmanError, HuffmanTrailingDataError, encode_with_lengths, huffman_decode,
+                     huffman_encode)
 
 MAGIC = b"TLM1"
 VERSION = 1
@@ -40,10 +41,17 @@ def build_header(device_id: int, packet_seq: int, salt: bytes, nonce: bytes,
                        ciphertext_len)
 
 
-def build_payload(frames: list[Frame]) -> bytes:
-    """Збирає навантаження з кадрів."""
+def build_payload(frames: list[Frame], lengths=None) -> bytes:
+    """Збирає навантаження з кадрів.
+
+    lengths — таблиця вікна кандидатів (FORMAT_SPEC 3.5, п. 5): якщо передана, кадри кодуються
+    саме нею і в пакет пишеться вся таблиця; інакше таблиця будується з самих кадрів.
+    """
     data = b"".join(frame.to_bytes() for frame in frames)
-    lengths, bitstream = huffman_encode(data)
+    if lengths is None:
+        lengths, bitstream = huffman_encode(data)
+    else:
+        bitstream = encode_with_lengths(data, lengths)
     # Таблиця: лише символи з ненульовою довжиною, за зростанням символу (розділ 3.2)
     symbols = sorted(s for s in lengths if lengths[s] > 0)
     table = b"".join(struct.pack(">BB", s, lengths[s]) for s in symbols)
@@ -99,7 +107,7 @@ def parse_payload(payload: bytes) -> list[Frame]:
 
 
 def build_packet(frames: list[Frame], password: str, device_id: int, packet_seq: int,
-                 salt: bytes, nonce: bytes) -> bytes:
+                 salt: bytes, nonce: bytes, lengths=None) -> bytes:
     """Збирає повний пакет: заголовок + шифротекст + HMAC (розділи 2 і 4, Encrypt-then-MAC)."""
     # struct.pack мовчки доповнив би коротку сіль нулями, тому перевіряємо довжини самі
     if len(salt) != 16:
@@ -107,7 +115,7 @@ def build_packet(frames: list[Frame], password: str, device_id: int, packet_seq:
     if len(nonce) != 12:
         raise ValueError("nonce має бути 12 байтів")
 
-    payload = build_payload(frames)
+    payload = build_payload(frames, lengths)
     k_enc, k_mac = derive_keys(password, salt)
     ciphertext = aes_ctr(k_enc, nonce, payload)
     header = build_header(device_id, packet_seq, salt, nonce, len(ciphertext))
