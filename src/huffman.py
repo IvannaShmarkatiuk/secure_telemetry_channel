@@ -9,6 +9,10 @@ class HuffmanError(Exception):
     """Помилка декодування; пакетний рівень перетворює її на E_CODE."""
 
 
+class HuffmanTrailingDataError(HuffmanError):
+    """Зайві байти в потоці після закодованих даних; пакетний рівень дає E_PAYLOAD."""
+
+
 # ---------- Крок 1. Частоти ----------
 
 def count_frequencies(data: bytes) -> dict[int, int]:
@@ -113,6 +117,9 @@ class BitReader:
         self._pos += 1
         return bit
 
+    def bytes_used(self) -> int:
+        return (self._pos + 7) // 8        # скільки байтів зачеплено прочитаними бітами
+
     def padding_is_zero(self) -> bool:
         used = self._pos % 8               # скільки бітів поточного байта прочитано
         if used == 0:
@@ -143,6 +150,14 @@ def huffman_decode(lengths: dict[int, int], bitstream: bytes,
         if not (0 <= s <= 255) or not (1 <= L <= MAX_CODE_LEN):
             raise HuffmanError(f"недопустимий запис таблиці: {s}:{L}")
 
+    if len(lengths) == 1:
+        if next(iter(lengths.values())) != 1:     # розділ 3.2: один символ -> довжина 1
+            raise HuffmanError("єдиний символ має мати довжину 1")
+    elif lengths:
+        kraft = sum(1 << (MAX_CODE_LEN - L) for L in lengths.values())
+        if kraft != 1 << MAX_CODE_LEN:            # сума 2^(-L) має дорівнювати 1
+            raise HuffmanError("таблиця не утворює повного префіксного дерева (сума Крафта ≠ 1)")
+
     codes = canonical_codes(lengths)
     lookup = {(lengths[s], c): s for s, c in codes.items()}
 
@@ -161,4 +176,6 @@ def huffman_decode(lengths: dict[int, int], bitstream: bytes,
 
     if not reader.padding_is_zero():       # розділ 3.3: доповнення мають бути нулі
         raise HuffmanError("ненульові біти доповнення")
+    if reader.bytes_used() != len(bitstream):   # розділ 3.3: доповнюється лише останній байт
+        raise HuffmanTrailingDataError("зайві байти після закодованих даних")
     return bytes(out)
