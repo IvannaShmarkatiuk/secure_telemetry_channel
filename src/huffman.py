@@ -179,3 +179,14 @@ def huffman_decode(lengths: dict[int, int], bitstream: bytes,
     if reader.bytes_used() != len(bitstream):   # розділ 3.3: доповнюється лише останній байт
         raise HuffmanTrailingDataError("зайві байти після закодованих даних")
     return bytes(out)
+
+# ---------- Чекпоінт 2: ваги кадрів для рюкзака (FORMAT_SPEC 3.5) ----------
+
+def window_lengths(frames_bytes: list[bytes]) -> dict[int, int]:
+    """Одна таблиця довжин на все вікно кандидатів (3.5, п.2)."""
+    return limited_code_lengths(count_frequencies(b"".join(frames_bytes)))
+
+
+def frame_weight(frame_bytes: bytes, lengths: dict[int, int]) -> int:
+    """Вага кадру в бітах: сума довжин кодів його байтів (3.5, п.3)."""
+    return sum(lengths[b] for b in frame_bytes)

@@ -11,9 +11,11 @@ from huffman import (
     canonical_codes,
     count_frequencies,
     encode_with_lengths,
+    frame_weight,
     huffman_decode,
     huffman_encode,
     limited_code_lengths,
+    window_lengths,
 )
 
 # Контрольний приклад, FORMAT_SPEC розділ 7
@@ -288,3 +290,43 @@ def test_decode_extra_byte_after_data():
 
 def test_trailing_error_is_huffman_error():
     assert issubclass(HuffmanTrailingDataError, HuffmanError)
+
+
+
+
+# ---------- Чекпоінт 2: ваги кадрів для рюкзака ----------
+
+def test_frame_weight_spec_frame():
+    # розділ 7: кадр за своєю таблицею займає 30 біт
+    assert frame_weight(SPEC_FRAME, SPEC_LENGTHS) == 30
+
+
+def test_window_lengths_empty():
+    assert window_lengths([]) == {}
+
+
+def test_window_lengths_single_frame_matches_spec():
+    lengths = window_lengths([SPEC_FRAME])
+    freqs = count_frequencies(SPEC_FRAME)
+    assert sum(freqs[s] * lengths[s] for s in freqs) == 30
+
+
+def test_window_table_is_complete_and_limited():
+    rng = random.Random(5)
+    frames = [bytes(rng.randrange(256) for _ in range(12)) for _ in range(64)]
+    lengths = window_lengths(frames)
+    assert max(lengths.values()) <= 15
+    assert kraft_sum(lengths) == 1
+    assert set(lengths) == set(b"".join(frames))
+
+
+def test_weights_sum_equals_encoded_size():
+    # ваги рахуються за тією самою таблицею, якою потім кодуються кадри,
+    # тому сума ваг = фактична довжина бітового потоку 
+    rng = random.Random(6)
+    frames = [bytes(rng.choice(b"\x00\x00\x00\x01\x03\xff") for _ in range(12)) for _ in range(64)]
+    lengths = window_lengths(frames)
+    chosen = frames[::3]
+    total_bits = sum(frame_weight(f, lengths) for f in chosen)
+    stream = encode_with_lengths(b"".join(chosen), lengths)
+    assert len(stream) == (total_bits + 7) // 8
