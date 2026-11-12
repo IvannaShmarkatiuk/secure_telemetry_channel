@@ -7,7 +7,7 @@ import os
 import time
 from pathlib import Path
 from huffman import frame_weight, window_lengths
-from knapsack import capacity_bits, knapsack_dp
+from knapsack import capacity_bits, knapsack_dp, knapsack_greedy
 
 from channel import Channel
 from frame import Frame
@@ -93,40 +93,45 @@ def make_packets(frames, config, salt, session_prefix):
         pos += best_count
         seq += 1
     return result
-def plan_windows(frames, config, classes=None):
-    """Ділить кадри на вікна кандидатів і для кожного вікна розв'язує рюкзак.
+def plan_windows(frames, config, classes=None, solver=knapsack_dp):
+    """Рюкзак по вікнах кандидатів із перенесенням (FORMAT_SPEC 3.5).
 
-    classes: клас кожного кадру (0, 1, 2) від перцептрона. Якщо не передано,
-    усі кадри вважаються класом 0, тоді цінність визначає лише critical.
-    Повертає список груп (індекси обраних кадрів, сумарна цінність, таблиця довжин).
+    Вікно: перші 64 кадри черги. Рюкзак обирає кадри в пакет, а решта
+    переходить у наступне вікно, тож жоден кадр не губиться.
+    classes: клас кожного кадру (0, 1, 2); без нього всі кадри класу 0.
+    solver: knapsack_dp або knapsack_greedy.
+    Повертає список груп (індекси кадрів, сумарна цінність, таблиця довжин).
     """
     window = config["пакування"]["candidate_window_frames"]
     max_payload = config["пакування"]["max_payload_bytes"]
     if classes is None:
         classes = [0] * len(frames)
+    queue = list(range(len(frames)))
     groups = []
-    for start in range(0, len(frames), window):
-        idx = list(range(start, min(start + window, len(frames))))
+    while queue:
+        idx = queue[:window]
         raw = [frames[i].to_bytes() for i in idx]
         lengths = window_lengths(raw)
         weights = [frame_weight(b, lengths) for b in raw]
         values = [frame_value(classes[i], frames[i].critical, config) for i in idx]
         cap = capacity_bits(max_payload, len(lengths))
-        chosen = knapsack_dp(weights, values, cap)
-        if chosen:
-            groups.append(([idx[j] for j in chosen],
-                           sum(values[j] for j in chosen), lengths))
+        chosen = solver(weights, values, cap)
+        if not chosen:
+            raise ValueError("жоден кадр вікна не вміщається в пакет")
+        chosen_idx = [idx[j] for j in chosen]
+        groups.append((chosen_idx, sum(values[j] for j in chosen), lengths))
+        taken = set(chosen_idx)
+        queue = [i for i in queue if i not in taken]
     return groups
 
-
-def make_packets_knapsack(frames, config, salt, session_prefix, classes=None):
+def make_packets_knapsack(frames, config, salt, session_prefix, classes=None, solver=knapsack_dp):
     """Пакування через рюкзак: один пакет на вікно, найцінніші пакети йдуть першими.
 
     Повертає список пар (пакет, кадри в пакеті), як і make_packets.
     """
     password = config["пароль_сеансу"]
     limit = config["пакування"]["max_packet_bytes"]
-    groups = plan_windows(frames, config, classes)
+    groups = plan_windows(frames, config, classes, solver)
     tables = {tuple(g[0]): g[2] for g in groups}
     order = schedule([(g[0], g[1]) for g in groups])
     result = []
@@ -140,7 +145,7 @@ def make_packets_knapsack(frames, config, salt, session_prefix, classes=None):
         result.append((packet, chosen))
     return result
 
-def run_scenario(frames, config, name, packer="knapsack", classes=None):
+def run_scenario(frames, config, name, packer="knapsack", classes=None, solver=knapsack_dp):
     """Один повний прогін у вибраному сценарії каналу. Повертає словник результатів."""
     password = config["пароль_сеансу"]
     started = time.perf_counter()
@@ -148,7 +153,7 @@ def run_scenario(frames, config, name, packer="knapsack", classes=None):
     salt = os.urandom(16)
     session_prefix = os.urandom(8)
     if packer == "knapsack":
-        packets = make_packets_knapsack(frames, config, salt, session_prefix, classes)
+        packets = make_packets_knapsack(frames, config, salt, session_prefix, classes, solver)
     else:
         packets = make_packets(frames, config, salt, session_prefix)
 

@@ -64,3 +64,19 @@ def test_knapsack_keeps_all_critical_frames():
     packets = make_packets_knapsack(frames, config, bytes(16), bytes(8))
     sent = {f.to_bytes() for _, fs in packets for f in fs}
     assert all(f.to_bytes() in sent for f in frames if f.critical)
+
+def test_plan_windows_covers_every_frame_exactly_once():
+    from run_session import plan_windows
+    frames = load_frames()
+    groups = plan_windows(frames, load_config())
+    indices = sorted(i for g in groups for i in g[0])
+    assert indices == list(range(len(frames)))
+
+
+def test_knapsack_calm_scenario_restores_all_frames():
+    config = load_config()
+    frames = load_frames()
+    res = run_scenario(frames, config, "спокійний")
+    assert sorted(f.to_bytes() for f in res["restored_frames"]) == sorted(
+        f.to_bytes() for f in frames
+    )
