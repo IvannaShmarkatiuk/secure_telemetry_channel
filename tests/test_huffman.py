@@ -6,6 +6,7 @@ from huffman import (
     BitReader,
     BitWriter,
     HuffmanError,
+    HuffmanTrailingDataError,
     build_code_lengths,
     canonical_codes,
     count_frequencies,
@@ -253,3 +254,37 @@ def test_decode_nonzero_padding_single_symbol():
     # 10 нульових бітів даних, у доповненні другого байта одиниця
     with pytest.raises(HuffmanError):
         huffman_decode({0x41: 1}, b"\x00\x01", 10)
+
+
+
+# ---------- Повнота таблиці (нерівність Крафта) і зайві байти ----------
+
+def test_decode_kraft_over_one():
+    # три коди довжини 1 неможливі: сума Крафта 3/2
+    with pytest.raises(HuffmanError, match="Крафта"):
+        huffman_decode({1: 1, 2: 1, 3: 1}, b"\x00", 1)
+
+
+def test_decode_kraft_under_one():
+    # 1/2 + 1/4 = 3/4: дерево неповне, Гаффман такого не дає
+    with pytest.raises(HuffmanError, match="Крафта"):
+        huffman_decode({1: 1, 2: 2}, b"\x00", 1)
+
+
+def test_decode_single_symbol_length_one_is_valid():
+    # вироджений випадок: сума 1/2
+    assert huffman_decode({0x41: 1}, b"\x00", 3) == b"AAA"
+
+
+def test_decode_single_symbol_wrong_length():
+    with pytest.raises(HuffmanError, match="довжину 1"):
+        huffman_decode({0x41: 2}, b"\x00", 1)
+
+
+def test_decode_extra_byte_after_data():
+    with pytest.raises(HuffmanTrailingDataError):
+        huffman_decode(SPEC_LENGTHS, SPEC_BITSTREAM + b"\x00", 12)
+
+
+def test_trailing_error_is_huffman_error():
+    assert issubclass(HuffmanTrailingDataError, HuffmanError)
