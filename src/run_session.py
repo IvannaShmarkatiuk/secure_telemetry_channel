@@ -6,11 +6,14 @@ import json
 import os
 import time
 from pathlib import Path
+from huffman import frame_weight, window_lengths
+from knapsack import capacity_bits, knapsack_dp
 
 from channel import Channel
 from frame import Frame
 from metrics import critical_recovery_r, efficiency_s, quality_q, speed_t
 from packet import PacketError, build_packet, parse_packet
+from classifier import load_labeled, predict_classes, train_classifier
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -90,16 +93,64 @@ def make_packets(frames, config, salt, session_prefix):
         pos += best_count
         seq += 1
     return result
+def plan_windows(frames, config, classes=None):
+    """Ділить кадри на вікна кандидатів і для кожного вікна розв'язує рюкзак.
+
+    classes: клас кожного кадру (0, 1, 2) від перцептрона. Якщо не передано,
+    усі кадри вважаються класом 0, тоді цінність визначає лише critical.
+    Повертає список груп (індекси обраних кадрів, сумарна цінність, таблиця довжин).
+    """
+    window = config["пакування"]["candidate_window_frames"]
+    max_payload = config["пакування"]["max_payload_bytes"]
+    if classes is None:
+        classes = [0] * len(frames)
+    groups = []
+    for start in range(0, len(frames), window):
+        idx = list(range(start, min(start + window, len(frames))))
+        raw = [frames[i].to_bytes() for i in idx]
+        lengths = window_lengths(raw)
+        weights = [frame_weight(b, lengths) for b in raw]
+        values = [frame_value(classes[i], frames[i].critical, config) for i in idx]
+        cap = capacity_bits(max_payload, len(lengths))
+        chosen = knapsack_dp(weights, values, cap)
+        if chosen:
+            groups.append(([idx[j] for j in chosen],
+                           sum(values[j] for j in chosen), lengths))
+    return groups
 
 
-def run_scenario(frames, config, name):
+def make_packets_knapsack(frames, config, salt, session_prefix, classes=None):
+    """Пакування через рюкзак: один пакет на вікно, найцінніші пакети йдуть першими.
+
+    Повертає список пар (пакет, кадри в пакеті), як і make_packets.
+    """
+    password = config["пароль_сеансу"]
+    limit = config["пакування"]["max_packet_bytes"]
+    groups = plan_windows(frames, config, classes)
+    tables = {tuple(g[0]): g[2] for g in groups}
+    order = schedule([(g[0], g[1]) for g in groups])
+    result = []
+    for seq, indices in enumerate(order):
+        chosen = [frames[i] for i in indices]
+        nonce = make_nonce(session_prefix, seq)
+        packet = build_packet(chosen, password, DEVICE_ID, seq, salt, nonce,
+                              tables[tuple(indices)])
+        if len(packet) > limit:
+            raise ValueError(f"пакет {seq}: {len(packet)} байтів, ліміт {limit}")
+        result.append((packet, chosen))
+    return result
+
+def run_scenario(frames, config, name, packer="knapsack", classes=None):
     """Один повний прогін у вибраному сценарії каналу. Повертає словник результатів."""
     password = config["пароль_сеансу"]
     started = time.perf_counter()
 
     salt = os.urandom(16)
     session_prefix = os.urandom(8)
-    packets = make_packets(frames, config, salt, session_prefix)
+    if packer == "knapsack":
+        packets = make_packets_knapsack(frames, config, salt, session_prefix, classes)
+    else:
+        packets = make_packets(frames, config, salt, session_prefix)
 
     scenario = config["канал"]["сценарії"][name]
     channel = Channel(scenario, config["канал"]["seed_моделі_каналу"])
@@ -135,17 +186,20 @@ def run_scenario(frames, config, name):
         "restored_frames": restored,
     }
 
-
 def main():
     config = load_config()
     frames = load_frames()
+
+    frames_train, labels_train = load_labeled(str(DATA / "train.csv"))
+    model = train_classifier(frames_train, labels_train)
+    classes = predict_classes(model, frames)
+
     print(f"Кадрів у сеансі: {len(frames)}")
     print(f"{'сценарій':<11}{'пакетів':>8}{'кадрів':>8}{'S':>8}{'R':>8}{'T':>8}{'Q':>8}{'час, с':>9}")
     for name in config["канал"]["сценарії"]:
-        res = run_scenario(frames, config, name)
+        res = run_scenario(frames, config, name, classes=classes)
         print(f"{name:<11}{res['пакетів']:>8}{res['кадрів_відновлено']:>8}"
               f"{res['S']:>8.4f}{res['R']:>8.4f}{res['T']:>8.4f}{res['Q']:>8.4f}{res['час_с']:>9.2f}")
-
 
 if __name__ == "__main__":
     main()
