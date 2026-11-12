@@ -5,6 +5,7 @@ import pytest
 
 import packet
 from frame import Frame
+import huffman
 from huffman import HuffmanError
 from packet import (HEADER_FORMAT, HEADER_LEN, PacketError, build_header, build_packet,
                     build_payload, parse_packet, parse_payload)
@@ -376,8 +377,8 @@ def test_big_packet_is_accepted(toy_crypto):
     assert parse_packet(pkt, PASSWORD) == [REF_FRAME] * 64
 
 def test_extra_bitstream_byte_is_rejected(monkeypatch):
-    # декодер "успішно" повертає кадр — нас цікавить лише перевірка довжини потоку
-    monkeypatch.setattr(packet, "huffman_decode", lambda lengths, bitstream, n: REF_FRAME_BYTES)
+    # тут потрібен справжній декодер Маші, а не підробка з фікстури
+    monkeypatch.setattr(packet, "huffman_decode", huffman.huffman_decode)
     # контрольне навантаження + один цілий зайвий нульовий байт; bitstream_len чесно 5 замість 4
     bad = REF_PAYLOAD[:20] + bytes.fromhex("0000000C 00000005") + REF_BITSTREAM + b"\x00"
     assert payload_error_code(bad) == "E_PAYLOAD"
