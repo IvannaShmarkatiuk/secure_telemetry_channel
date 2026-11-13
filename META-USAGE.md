@@ -11,3 +11,10 @@
 - Згенерований код: функцію speed_t у src/metrics.py (6 рядків, T = t_ref / (t_ref + t) з перевіркою на нуль) згенерував Claude. Ми її перевірили і покрили тестом у tests/test_metrics.py.
 
 Результати вимірювань, значення Q і висновки в docs/results.md ШІ не генерував.
+
+Запис: шифрування та класифікатор
+
+Задача: реалізувати шифрування (src/crypto.py), класифікатор (src/classifier.py), тести безпеки (tests/test_security.py), підготувати результати класифікації (results/classifier_metrics.json) і порівняння стиснення та шифрування (experiments/compress_vs_encrypt.py).
+
+Що було використано: основну частину коду в src/crypto.py, src/classifier.py та tests/test_security.py виконувала самостійно. Claude використовувався для пошуку можливих помилок, аналізу окремих частин коду та допомоги з виправленнями. Також Claude допоміг із реалізацією окремих частин experiments/compress_vs_encrypt.py. Запропоновані зміни перевіряла самостійно.
+Перевірка: перевіряла роботу шифрування в src/crypto.py, класифікатора в src/classifier.py та тестів у tests/test_security.py. Результати класифікації збережені в results/classifier_metrics.json.
