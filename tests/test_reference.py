@@ -55,3 +55,15 @@ def test_bad_packet_is_rejected(name):
     with pytest.raises(PacketError) as error:
         parse_packet(data, "algo2026")
     assert error.value.code == EXPECTED_FAILURES[name]["очікуваний_код"]
+
+
+def test_no_compression_packet_is_built():
+    # ref_05: flags = 0x08, таблиці немає, кадри лежать сирими байтами
+    data, meta = load_ref("ref_05_no_compression")
+    frames = [Frame(**f) for f in meta["кадри"]]
+    device_id = int.from_bytes(data[5:7], "big")
+    packet_seq = int.from_bytes(data[7:11], "big")
+    packet = build_packet(frames, meta["пароль"], device_id, packet_seq,
+                          bytes.fromhex(meta["salt_hex"]), bytes.fromhex(meta["nonce_hex"]),
+                          compress=False)
+    assert packet == data

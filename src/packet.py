@@ -41,13 +41,17 @@ def build_header(device_id: int, packet_seq: int, salt: bytes, nonce: bytes,
                        ciphertext_len)
 
 
-def build_payload(frames: list[Frame], lengths=None) -> bytes:
+def build_payload(frames: list[Frame], lengths=None, compress: bool = True) -> bytes:
     """Збирає навантаження з кадрів.
 
-    lengths — таблиця вікна кандидатів (FORMAT_SPEC 3.5, п. 5): якщо передана, кадри кодуються
+    lengths — таблиця вікна кандидатів: якщо передана, кадри кодуються
     саме нею і в пакет пишеться вся таблиця; інакше таблиця будується з самих кадрів.
+        compress=False — режим NO_COMPRESSION (3.1.1): без таблиці, кадри сирими байтами.
     """
     data = b"".join(frame.to_bytes() for frame in frames)
+    if not compress:
+        start = struct.pack(PAYLOAD_START_FORMAT, len(frames), FLAG_NO_COMPRESSION, 0, 0)
+        return start + struct.pack(PAYLOAD_COUNTS_FORMAT, len(data), len(data)) + data
     if lengths is None:
         lengths, bitstream = huffman_encode(data)
     else:
@@ -107,7 +111,7 @@ def parse_payload(payload: bytes) -> list[Frame]:
 
 
 def build_packet(frames: list[Frame], password: str, device_id: int, packet_seq: int,
-                 salt: bytes, nonce: bytes, lengths=None) -> bytes:
+                 salt: bytes, nonce: bytes, lengths=None, compress: bool = True) -> bytes:
     """Збирає повний пакет: заголовок + шифротекст + HMAC (розділи 2 і 4, Encrypt-then-MAC)."""
     # struct.pack мовчки доповнив би коротку сіль нулями, тому перевіряємо довжини самі
     if len(salt) != 16:
@@ -115,7 +119,7 @@ def build_packet(frames: list[Frame], password: str, device_id: int, packet_seq:
     if len(nonce) != 12:
         raise ValueError("nonce має бути 12 байтів")
 
-    payload = build_payload(frames, lengths)
+    payload = build_payload(frames, lengths, compress)
     k_enc, k_mac = derive_keys(password, salt)
     ciphertext = aes_ctr(k_enc, nonce, payload)
     header = build_header(device_id, packet_seq, salt, nonce, len(ciphertext))
