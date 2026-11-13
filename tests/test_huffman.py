@@ -1,4 +1,5 @@
 import random
+from pathlib import Path
 
 import pytest
 
@@ -330,3 +331,12 @@ def test_weights_sum_equals_encoded_size():
     total_bits = sum(frame_weight(f, lengths) for f in chosen)
     stream = encode_with_lengths(b"".join(chosen), lengths)
     assert len(stream) == (total_bits + 7) // 8
+
+
+
+def test_round_trip_on_session():
+    # справжній сеанс із data/session.bin: 3000 кадрів, 36000 байтів
+    data = (Path(__file__).resolve().parent.parent / "data" / "session.bin").read_bytes()
+    lengths, bitstream = huffman_encode(data)
+    assert huffman_decode(lengths, bitstream, len(data)) == data
+    assert len(bitstream) < len(data)      # сеанс справді стискається
