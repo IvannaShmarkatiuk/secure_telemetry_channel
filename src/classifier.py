@@ -277,7 +277,7 @@ def _report(train_path, valid_path, config_path) -> float:
         print(f"  F1[{names[c]}] = {'—' if v is None else f'{v:.4f}'}")
     print("Матриця помилок (рядок = справжній, стовпчик = передбачений):")
     print("             " + "".join(f"{n:>12}" for n in names))
-        cm = confusion_matrix(vl, pred)
+    cm = confusion_matrix(vl, pred)
     for c, row in enumerate(cm):
         print(f"{names[c]:>12} " + "".join(f"{x:>12}" for x in row))
 
