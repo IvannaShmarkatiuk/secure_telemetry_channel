@@ -1,0 +1,64 @@
+{
+  "q_baseline": 0.5959592594637774,
+  "q_baseline_other_seeds": 0.6019830478210193,
+  "budget": 40,
+  "runs": [
+    {
+      "seed": 0,
+      "ga_q": 0.6925053369110931,
+      "ga_genes": {
+        "window": 39,
+        "critical_bonus": 12,
+        "anomaly_weight": 4
+      },
+      "random_q": 0.6927172508974758,
+      "random_genes": {
+        "window": 38,
+        "critical_bonus": 10,
+        "anomaly_weight": 1
+      },
+      "ga_q_other_seeds": 0.6961285615255606,
+      "random_q_other_seeds": 0.6977694919147244,
+      "initial_best": 0.6901483150589601,
+      "final_best": 0.6925053369110931
+    },
+    {
+      "seed": 1,
+      "ga_q": 0.6905240218421497,
+      "ga_genes": {
+        "window": 41,
+        "critical_bonus": 10,
+        "anomaly_weight": 8
+      },
+      "random_q": 0.6905154003910418,
+      "random_genes": {
+        "window": 41,
+        "critical_bonus": 18,
+        "anomaly_weight": 6
+      },
+      "ga_q_other_seeds": 0.6935006041230322,
+      "random_q_other_seeds": 0.6941555642600085,
+      "initial_best": 0.674541191922585,
+      "final_best": 0.6905240218421497
+    },
+    {
+      "seed": 2,
+      "ga_q": 0.6919938028687144,
+      "ga_genes": {
+        "window": 40,
+        "critical_bonus": 20,
+        "anomaly_weight": 6
+      },
+      "random_q": 0.6913442777744233,
+      "random_genes": {
+        "window": 39,
+        "critical_bonus": 10,
+        "anomaly_weight": 7
+      },
+      "ga_q_other_seeds": 0.6953591874543898,
+      "random_q_other_seeds": 0.6948409507462435,
+      "initial_best": 0.6879483552994271,
+      "final_best": 0.6919938028687144
+    }
+  ]
+}
