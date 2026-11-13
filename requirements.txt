@@ -1,3 +1,4 @@
 pytest
 cryptography
 numpy
+pytest-cov
