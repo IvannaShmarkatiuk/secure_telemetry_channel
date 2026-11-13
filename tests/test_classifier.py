@@ -123,3 +123,11 @@ def test_real_data_load_and_threshold():
     model = train_classifier(frames, labels)            # 3 seed, 80/20
     vf, vl = load_labeled(DATA_DIR / "valid.csv")
     assert macro_f1(vl, predict_classes(model, vf)) >= F1_MIN
+
+
+def test_save_metrics_writes_json_atomically(tmp_path):
+    import json
+    from classifier import save_metrics
+    out = save_metrics({"valid_macro_f1": 0.9, "матриця": [[1, 0], [0, 1]]}, tmp_path / "m.json")
+    assert json.loads(out.read_text(encoding="utf-8"))["valid_macro_f1"] == 0.9
+    assert not (tmp_path / "m.tmp").exists()          # тимчасовий файл не лишився
