@@ -15,6 +15,7 @@ import csv
 import math
 import random
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -276,9 +277,42 @@ def _report(train_path, valid_path, config_path) -> float:
         print(f"  F1[{names[c]}] = {'—' if v is None else f'{v:.4f}'}")
     print("Матриця помилок (рядок = справжній, стовпчик = передбачений):")
     print("             " + "".join(f"{n:>12}" for n in names))
-    for c, row in enumerate(confusion_matrix(vl, pred)):
+        cm = confusion_matrix(vl, pred)
+    for c, row in enumerate(cm):
         print(f"{names[c]:>12} " + "".join(f"{x:>12}" for x in row))
+
+    metrics = {
+        "модель": f"MLP {len(FEATURE_NAMES)}-16-{N_CLASSES}, ReLU, softmax, SGD, зважена крос-ентропія",
+        "ознаки": FEATURE_NAMES,
+        "вікно_історії_кадрів": model["window"],
+        "протокол": "train.csv 80/20 стратифіковано, вибір seed за macro-F1 на валідації, один прогін на valid.csv",
+        "seeds": [{"seed": r["seed"], "val_macro_f1": round(r["val_macro_f1"], 4),
+                   "найкраща_епоха": r["best_epoch"]} for r in model["all_runs"]],
+        "обраний_seed": model["seed"],
+        "valid_macro_f1": round(score, 4),
+        "F1_min": f1_min,
+        "поріг_виконано": score >= f1_min,
+        "базова_лінія_мажоритарний_клас": perc["базова_лінія_мажоритарний_клас"],
+        "базова_лінія_випадковий_вибір": perc["базова_лінія_випадковий_вибір"],
+        "f1_по_класах": {names[c]: (None if v is None else round(v, 4))
+                         for c, v in enumerate(f1_per_class(vl, pred))},
+        "класи": {str(c): n for c, n in enumerate(names)},
+        "матриця_помилок": {"рядок": "справжній клас", "стовпчик": "передбачений клас", "значення": cm},
+    }
+    out = save_metrics(metrics, ROOT / "results" / "classifier_metrics.json")
+    print(f"\nЗбережено: {out.relative_to(ROOT)}")
     return score
+
+
+def save_metrics(metrics: dict, path: Path) -> Path:
+    """Атомарний запис JSON: спершу в тимчасовий файл, потім os.replace.
+    Якщо програма впаде посередині, старий файл лишиться цілим."""
+    path.parent.mkdir(exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(metrics, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+    return path
 
 
 if __name__ == "__main__":
